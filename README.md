@@ -1,307 +1,257 @@
 # Raw-Telegram-Data-to-an-Analytical-API
-# Medical Telegram Warehouse
+🏥 Shipping a Data Product: From Raw Telegram Data to an Analytical API
+📌 Project Overview
 
-## 📌 Project Overview
+This project builds an end-to-end, production-ready data pipeline that transforms raw, unstructured Telegram data into a clean, enriched, and queryable analytical API.
 
-This project builds an **end-to-end data engineering pipeline** for collecting, transforming, and modeling data from **Telegram channels related to Ethiopian medical businesses**. The goal is to turn raw, unstructured Telegram messages into a **clean, trusted, analytics-ready data warehouse** using modern data engineering tools.
+The system focuses on Ethiopian medical and pharmaceutical Telegram channels, extracting insights about products, prices, posting behavior, and visual content. It follows modern data engineering best practices, including ELT architecture, dimensional modeling, data validation, enrichment with computer vision, and pipeline orchestration.
 
-The pipeline follows a classic **ELT architecture**:
+The final result is not just data — but a reliable data product.
 
-1. **Extract & Load** – Scrape raw Telegram data and load it into PostgreSQL
-2. **Transform** – Use dbt to clean, test, and model the data
-3. **Serve** – Provide a star schema optimized for analytics and reporting
+🎯 Business Problem
 
----
+Medical businesses in Ethiopia actively use Telegram to advertise products, prices, and availability. However:
 
-## 🏗️ Project Structure
+The data is scattered across channels
 
-```
+Messages are unstructured and inconsistent
+
+Images contain valuable signals that are often ignored
+
+Manual analysis does not scale
+
+This project answers questions such as:
+
+What are the most frequently mentioned medical products?
+
+How does activity vary across channels and time?
+
+Which channels rely more on visual promotion?
+
+Do posts with people or product images attract more attention?
+
+🏗️ Architecture Overview
+
+The project follows a layered ELT architecture:
+
+Telegram → Data Lake → PostgreSQL (Raw) → dbt (Staging & Marts)
+        → YOLO Image Enrichment → Analytical API → Orchestration (Dagster)
+
+
+Each layer has a clear responsibility, making the system robust, scalable, and reproducible.
+
+📁 Project Structure
 medical-telegram-warehouse/
-├── .env                        # Secrets (API keys, DB credentials) – NOT COMMITTED
-├── requirements.txt
-├── README.md
-├── data/
-│   └── raw/
-│       ├── telegram_messages/
-│       │   └── YYYY-MM-DD/
-│       │       ├── lobelia4cosmetics.json
-│       │       ├── tikvahpharma.json
-│       │       └── chemed123.json
-│       └── images/
-│           └── channel_name/
-│               └── message_id.jpg
-├── logs/
-│   └── scraper.log
-├── src/
-│   ├── scraper.py              # Telegram scraping pipeline
-│   └── config.py               # Centralized configuration
-├── notebooks/
-│   └── telegram_scraping.ipynb # Reproducible execution notebook
-├── medical_warehouse/          # dbt project
-│   ├── dbt_project.yml
-│   ├── profiles.yml
+│
+├── src/                    # Core pipeline scripts
+│   ├── scraper.py          # Telegram scraping
+│   ├── load_raw_to_postgres.py
+│   └── yolo_detect.py      # Image enrichment
+│
+├── api/                    # FastAPI application
+│   ├── main.py
+│   ├── database.py
+│   └── schemas.py
+│
+├── medical_warehouse/      # dbt project
 │   ├── models/
 │   │   ├── staging/
 │   │   └── marts/
 │   └── tests/
-└── scripts/
-```
+│
+├── data/
+│   ├── raw/                # JSON + images
+│   └── processed/          # YOLO outputs
+│
+├── pipeline.py             # Dagster orchestration
+├── requirements.txt
+├── docker-compose.yml
+├── .env                    # Secrets (not committed)
+└── README.md
 
----
+✅ Task Breakdown
+🔹 Task 1 – Data Scraping & Loading (Extract & Load)
+What was done
 
-## 🧩 Task 1 – Data Scraping and Collection (Extract & Load)
+Connected securely to the Telegram API using Telethon
 
-### 🎯 Objective
+Scraped a controlled number of messages from public medical channels
 
-Extract messages and images from selected Telegram channels and store them in a **raw data lake**, preserving the original structure.
+Extracted:
 
-### 📡 Telegram Channels Scraped
+Message ID, timestamp, text
 
-* `@lobelia4cosmetics`
-* `@tikvahpharma`
-* `@chemed123`
+Views and forwards
 
-### 🔐 Authentication
+Media metadata
 
-* Telegram API credentials (`api_id`, `api_hash`) are stored in `.env`
-* Loaded securely using **python-dotenv**
+Downloaded images into a structured folder hierarchy
 
-### ⚙️ Scraping Logic
+Stored raw data as partitioned JSON files
 
-* Built using **Telethon (async)**
-* Scrapes a **limited number of recent messages per channel** (configurable)
-* Each channel can have a different message limit
+Implemented logging for observability
 
-### 📥 Extracted Fields
+Loaded raw JSON data into PostgreSQL without modification
 
-For each message:
+Result
 
-* `message_id`
-* `date` (ISO format)
-* `text`
-* `views`
-* `forwards`
-* `media metadata`
+A trustworthy raw data lake and a raw.telegram_messages table preserving original truth.
 
-### 🖼️ Image Handling
+🔹 Task 2 – Data Modeling & Transformation (Transform)
+What was done
 
-* If a message contains a photo:
+Initialized a dbt project connected to PostgreSQL
 
-  * Downloaded to:
+Created schemas:
 
-    ```
-    data/raw/images/{channel_name}/{message_id}.jpg
-    ```
-  * Directories are created automatically
+raw → original data
 
-### 🗂️ Data Lake Storage
+staging → cleaned data
 
-* Raw data stored as JSON
-* Partitioned by **date and channel**:
+marts → analytics-ready models
 
-  ```
-  data/raw/telegram_messages/YYYY-MM-DD/{channel_name}.json
-  ```
-* Uses `json.dump(..., default=str)` to handle datetime serialization
+Built staging models to:
 
-### 📊 Progress Tracking
+Cast data types
 
-* Scraping progress is displayed as a **percentage** while messages are being collected
+Standardize column names
 
-### 🧾 Logging & Error Handling
+Remove invalid records
 
-* Logs saved to `logs/scraper.log`
-* Captures:
+Add derived fields
 
-  * Start/end of each channel scrape
-  * Errors (network issues, rate limits, unexpected failures)
-* Designed to fail gracefully without crashing the pipeline
+Designed a star schema:
 
----
+dim_channels
 
-## 🧱 Task 2 – Data Modeling and Transformation (Transform)
+dim_dates
 
-### 🎯 Objective
+fct_messages
 
-Transform messy raw Telegram data into a **clean, trusted star schema** using **dbt**.
+Implemented dbt tests:
 
----
+not_null, unique
 
-## 🐘 PostgreSQL Layer
+Foreign key relationships
 
-### ✅ What Is Created Manually
+Custom business rule tests
 
-Only **one table** is created manually:
+Generated dbt documentation
 
-```sql
-raw.telegram_messages
-```
+Result
 
-This table:
+A clean, tested, and documented data warehouse optimized for analytics and APIs.
 
-* Stores raw scraped data
-* Is append-only
-* Never modified or cleaned
+🔹 Task 3 – Data Enrichment with YOLOv8 (Enrich)
+What was done
 
-Schemas created:
+Used YOLOv8 nano for efficient object detection
 
-```sql
-raw
-staging
-marts
-```
+Scanned downloaded Telegram images
 
-All other tables are created by **dbt**.
+Detected objects and confidence scores
 
----
+Classified images into:
 
-## 🧼 Staging Models (models/staging)
+promotional
 
-### Purpose
+product_display
 
-* Clean and standardize raw data
-* Prepare data for dimensional modeling
+lifestyle
 
-### Key Transformations
+other
 
-* Cast data types correctly (dates, integers)
-* Rename columns using consistent naming conventions
-* Remove invalid records (null or empty messages)
-* Add derived fields:
+Stored results in a CSV
 
-  * `message_length`
-  * `has_image`
+Integrated image data into the warehouse via dbt
 
-### Example Model
+Result
 
-```text
-stg_telegram_messages.sql
-```
+Unstructured images were transformed into structured analytical signals, enabling visual-content insights.
 
----
+🔹 Task 4 – Analytical API (Serve)
+What was done
 
-## ⭐ Star Schema Design (models/marts)
+Built a FastAPI application
 
-### 📐 Design Choice
+Connected to PostgreSQL via SQLAlchemy
 
-A **star schema** was chosen for:
+Implemented analytical endpoints:
 
-* Fast analytical queries
-* Clear separation of facts and dimensions
-* BI and dashboard friendliness
+Top mentioned products
 
----
+Channel activity trends
 
-### 📊 Fact Table
+Message keyword search
 
-#### `fct_messages`
+Visual content statistics
 
-One row per Telegram message
+Added Pydantic schemas for validation
 
-| Column         | Description        |
-| -------------- | ------------------ |
-| message_id     | Natural message ID |
-| channel_key    | FK to dim_channels |
-| date_key       | FK to dim_dates    |
-| message_text   | Message content    |
-| message_length | Character count    |
-| view_count     | Views              |
-| forward_count  | Forwards           |
-| has_image      | Image indicator    |
+Enabled automatic OpenAPI documentation
 
----
+Result
 
-### 🧩 Dimension Tables
+A self-documenting analytical API that exposes warehouse insights to dashboards and users.
 
-#### `dim_channels`
+🔹 Task 5 – Pipeline Orchestration with Dagster (Automate)
+What was done
 
-Stores channel-level information
+Converted each pipeline step into Dagster ops
 
-* channel_key (surrogate key)
-* channel_name
-* channel_type (Pharmaceutical, Cosmetics, Medical)
-* first_post_date
-* last_post_date
-* total_posts
-* avg_views
+Defined a job enforcing execution order
 
-#### `dim_dates`
+Enabled logging, retries, and observability
 
-Standard date dimension
+Configured daily scheduling
 
-* date_key
-* full_date
-* day_name, month_name, year
-* week_of_year, quarter
-* is_weekend
+Verified execution via Dagster UI
 
----
+Result
 
-## ✅ Data Testing with dbt
+The pipeline became a fully automated, observable workflow, no longer a collection of scripts.
 
-### Built-in Tests (schema.yml)
+🔁 Reproducibility & Reliability
 
-* `unique` and `not_null` tests on primary keys
-* `relationships` tests on foreign keys
+Reproducibility is ensured through:
 
-### Custom Tests (tests/)
+.env for secrets and credentials
 
-#### Examples:
+requirements.txt for dependency control
 
-* `assert_no_future_messages.sql`
+dbt for deterministic transformations
 
-  * Ensures no message has a future date
+Dagster for execution guarantees
 
-* `assert_positive_views.sql`
+Clear module boundaries
 
-  * Ensures view counts are non-negative
+To reproduce the system:
 
-> All tests must return **0 rows** to pass
+Set environment variables
 
----
+Install dependencies
 
-## 📚 Documentation
+Run Dagster or individual components
 
-* Generated using:
+🚀 How to Run
+pip install -r requirements.txt
+dagster dev -f pipeline.py
 
-  ```bash
-  dbt docs generate
-  dbt docs serve
-  ```
-* Includes:
 
-  * Model descriptions
-  * Column-level metadata
-  * Lineage graph
+Access:
 
----
+Dagster UI → http://localhost:3000
 
-## 🔁 Reproducibility
+API Docs → http://localhost:8000/docs
 
-### Achieved Through:
+🔮 Future Extensions
 
-* Centralized configuration (`config.py`)
-* Environment-based secrets (`.env`)
-* Deterministic dbt models
-* Notebook-based execution for transparency
+Product-level entity recognition (NER)
 
-### Final Execution Entry Point
+Price extraction using NLP
 
-All steps can be **re-run reproducibly** from:
+Alerting on product availability changes
 
-```text
-notebooks/telegram_scraping.ipynb
-```
+Dashboard integration (Superset / Power BI)
 
----
-
-## 🌟 Final Outcome
-
-This project delivers:
-
-* A reliable Telegram data ingestion pipeline
-* A clean, tested PostgreSQL data warehouse
-* A star schema optimized for analytics
-* Fully documented, reproducible transformations
-
-Raw chaos becomes trusted insight — gently, clearly, and at scale 🌿
+Domain-specific computer vision models
