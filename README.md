@@ -4,6 +4,8 @@
 
 This project builds an end-to-end, production-ready data pipeline that transforms raw, unstructured Telegram data into a clean, enriched, and queryable analytical API.
 
+“Due to solo development constraints, PRs were not used initially. In a team setting, all changes would be introduced via feature branches and reviewed through pull requests.”
+
 The system focuses on Ethiopian medical and pharmaceutical Telegram channels, extracting insights about products, prices, posting behavior, and visual content. It follows modern data engineering best practices, including ELT architecture, dimensional modeling, data validation, enrichment with computer vision, and pipeline orchestration.
 
 The final result is not just data — but a reliable data product.
